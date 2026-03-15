@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>EN 1992-1-1 Concrete Cover Calculator</title>
+  <title>EN 1992-1-1 Concrete Cover Calculator Rev-1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
@@ -13,12 +13,16 @@
     <div class="brand">
       <img src="LR.png" alt="Logo" class="brand-logo" />
       <div class="title">
-        <h1>Concrete Cover Calculator</h1>
-        <p>EN 1992-1-1:2004 §4.4 · “Concrete Materials – Cover” (Draft)</p>
+        <h1>Concrete Cover Calculator : Rev-1</h1>
+        <p>EN 1992-1-1:2004 §4.4 · “Concrete Materials – Cover”</p>
       </div>
     </div>
-    <button id="themeToggle" class="btn ghost" aria-label="Toggle theme">🌓</button>
-  </header>
+
+    <div class="header-actions">
+      <button type="button" id="printBtn" class="btn">Print / Save PDF</button>
+      <button id="themeToggle" class="btn ghost" aria-label="Toggle theme">🌓</button>
+    </div>
+  </header>  
 
   <main class="container">
     <section class="card">
@@ -99,8 +103,15 @@
             </label>
             <label>
               <span>Design working life (years)</span>
-              <input id="designLife" type="number" step="1" value="50" />
+              <select id="designLife"></select>
             </label>
+
+            <label class="help">
+              <span>Air entrainment more than 4%?</span>
+              <select id="airEntrainment"></select>
+              <small>If Yes, reduce the strength class used for Table 4.3N by one grade.</small>
+            </label>
+            
             <label>
               <span>Member with slab geometry?</span>
               <select id="slabGeom"></select>
@@ -141,14 +152,15 @@
             </label>
             <label id="dcdWrap">
               <span>Δc<sub>dev</sub> (mm) <small id="dcdRange">(auto-range)</small></span>
-              <input id="deltaCdev" type="number" step="1" value="10" />
-            </label>
+              <input id="deltaCdev" type="number" step="1" min="0" value="10" />
+              <small id="deltaCdevMsg" class="field-msg hidden" aria-live="polite"></small>
+            </label>           
           </fieldset>
         </div>
         <div class="toolbar">
           <button type="button" id="calcBtn" class="btn primary">Calculate cover</button>
           <button type="reset" id="resetBtn" class="btn">Reset</button>
-        </div>
+        </div>       
       </form>
     </section>
 
@@ -177,7 +189,7 @@
         <li>XF/XA exposures primarily influence concrete composition; EC2 §4.4.1.2(12) notes corrosion cover is normally sufficient for attack classes.</li>
         <li>For tendon anchorages, meet ETA minimum cover.</li>
         <li>If fire rating governs, check EN 1992-1-2 axis distances and adjust.</li>
-        <li>Verify against your National Annex before issue.</li>
+        <li>This sheet uses national parameters as suggested in UK national annex – Check appropriate national annex for country of implementation.</li>
       </ul>
     </section>
   </main>
@@ -185,6 +197,8 @@
   <footer class="app-footer">
     <small>© OFFSHORE FIXED STRUCTURES 2025 – Concrete Cover Calculator</small>
   </footer>
+
+  <div id="printFooter" class="print-footer"></div>
 
   <script src="app.js"></script>
 </body>

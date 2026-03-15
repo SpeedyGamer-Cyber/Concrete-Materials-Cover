@@ -6,6 +6,11 @@
 body{ margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji"; color:var(--ink); background: radial-gradient(1200px 600px at 20% -20%, rgba(77,163,255,.2), transparent 60%), radial-gradient(1000px 500px at 110% 10%, rgba(116,224,166,.25), transparent 60%), var(--bg) }
 .app-header,.app-footer{ max-width:1200px; margin:0 auto; padding:18px 16px; display:flex; align-items:center; justify-content:space-between }
 .brand{ display:flex; gap:14px; align-items:center }
+.header-actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
 .brand-logo{ height:44px; width:auto; display:block }
 .title h1{ margin:.1rem 0 .2rem 0; font-size:1.25rem }
 .title p{ margin:0; color:var(--muted); font-size:.9rem }
@@ -15,6 +20,17 @@ body{ margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Seg
 .subtle{opacity:.95}
 .grid.two{display:grid; gap:18px; grid-template-columns: repeat(2, minmax(0,1fr))}
 @media (max-width: 900px){ .grid.two{grid-template-columns:1fr} }
+@media (max-width: 700px){
+  .app-header{
+    flex-wrap:wrap;
+    gap:10px;
+  }
+
+  .header-actions{
+    width:100%;
+    justify-content:flex-end;
+  }
+}
 fieldset{ border:1px dashed color-mix(in oklab, var(--ring) 50%, transparent); border-radius:12px; padding:14px; min-inline-size:0 }
 legend{padding:0 8px;color:var(--muted)}
 label{display:flex; flex-direction:column; gap:6px; margin:8px 0}
@@ -30,10 +46,113 @@ input:focus,select:focus{ border-color:var(--primary); box-shadow:0 0 0 4px colo
 .btn:hover{border-color:var(--primary)}
 .btn.primary{ border-color:transparent; background: linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary) 50%, var(--accent))); color:#0b1220; font-weight:700 }
 .btn.ghost{ background:transparent; border-color: color-mix(in oklab, var(--ring) 60%, transparent) }
-.output{ white-space:pre-wrap; background: color-mix(in oklab, var(--card) 88%, #000 0%); border-radius:12px; padding:12px; border:1px solid color-mix(in oklab, var(--ring) 65%, transparent); min-height:160px }
+.output{
+  white-space:pre-wrap;
+  background: color-mix(in oklab, var(--card) 88%, #000 0%);
+  border-radius:12px;
+  padding:12px;
+  border:1px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  min-height:160px;
+  font-size:1.05rem;
+  line-height:1.55;
+}
 .summary{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; margin-bottom:10px }
 .kpi{ background: linear-gradient(180deg, color-mix(in oklab, var(--card) 70%, var(--accent) 10%), var(--card)); border:1px solid color-mix(in oklab, var(--ring) 60%, transparent); border-radius:14px; padding:12px }
 .kpi-label{color:var(--muted); font-size:.9rem}
 .kpi-value{font-size:1.6rem; font-weight:800}
 .hidden{display:none}
 .app-footer{opacity:.7}
+.field-msg{
+  display:block;
+  margin-top:4px;
+  font-size:1.2rem;
+  color:var(--muted);
+}
+.field-msg.warn{
+  color:var(--warn);
+}
+.field-msg.error{
+  color:#ff6b6b;
+}
+input.input-warn, select.input-warn{
+  border-color:var(--warn);
+  box-shadow:0 0 0 4px color-mix(in oklab, var(--warn) 18%, transparent);
+}
+input.input-error, select.input-error{
+  border-color:#ff6b6b;
+  box-shadow:0 0 0 4px rgba(255,107,107,.18);
+}
+
+.print-footer{
+  display:none;
+}
+
+@page{
+  size:auto;
+  margin:16mm 12mm 18mm 12mm;
+}
+
+@media print{
+  html, body{
+    background:#fff !important;
+    color:#000 !important;
+  }
+
+  body{
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Keep title bar visible in print */
+  .app-header{
+    display:flex !important;
+    max-width:none;
+    padding:0 0 10px 0;
+    margin:0 0 10px 0;
+    border-bottom:1px solid #999;
+  }
+
+  /* Hide interactive controls in print */
+  #themeToggle,
+  #printBtn,
+  .toolbar{
+    display:none !important;
+  }
+  
+  /* Make layout use full page width when printing */
+  .container,
+  .app-footer{
+    max-width:none;
+    width:100%;
+    margin:0;
+    padding-left:0;
+    padding-right:0;
+  }
+
+  .card{
+    box-shadow:none;
+    border:1px solid #bbb;
+    break-inside:avoid;
+    page-break-inside:avoid;
+  }
+
+  .output{
+    border:1px solid #bbb;
+    white-space:pre-wrap;
+  }
+
+  /* Print timestamp footer */
+  .print-footer{
+    display:block !important;
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:0;
+    padding:4px 12mm 0 12mm;
+    font-size:0.8rem;
+    color:#555;
+    text-align:right;
+    border-top:1px solid #bbb;
+    background:#fff;
+  }
+}

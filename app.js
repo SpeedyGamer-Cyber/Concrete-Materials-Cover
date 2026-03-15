@@ -14,6 +14,7 @@ const REINF_TYPES = [
   "Prestressing – Pre-tension (strand/wire)"
 ];
 const YESNO = ["No","Yes"];
+const DESIGN_WORKING_LIFE = ["50","75","100"];
 const QC_LEVELS = ["Normal","Special"];
 const ABRASION = ["None","XM1 (+5 mm)","XM2 (+10 mm)","XM3 (+15 mm)"];
 const GROUND_CAST = [
@@ -74,6 +75,118 @@ const MIN_STRENGTH_BY_EXPOSURE_E1N = {
 };
 
 const el = id => document.getElementById(id);
+
+let eventsBound = false;
+
+function resetResultsDisplay() {
+  el("output").textContent = `Fill inputs and click “Calculate cover”.`;
+  el("kpiCnom").textContent = "–";
+  el("kpiCmin").textContent = "–";
+  el("kpiSclass").textContent = "–";
+}
+
+function ensureFieldMessage(id) {
+  const input = el(id);
+  if (!input) return null;
+
+  let msg = input.parentElement.querySelector(".field-msg[data-for='" + id + "']");
+  if (!msg) {
+    msg = document.createElement("small");
+    msg.className = "field-msg hidden";
+    msg.setAttribute("data-for", id);
+    msg.setAttribute("aria-live", "polite");
+    input.insertAdjacentElement("afterend", msg);
+  }
+  return msg;
+}
+
+function setFieldValidation(id, kind, text) {
+  const input = el(id);
+  const msg = ensureFieldMessage(id);
+  if (!input || !msg) return;
+
+  msg.textContent = text || "";
+  msg.classList.toggle("hidden", !text);
+  msg.classList.remove("warn", "error");
+  input.classList.remove("input-warn", "input-error");
+
+  if (kind === "warn") {
+    msg.classList.add("warn");
+    input.classList.add("input-warn");
+  } else if (kind === "error") {
+    msg.classList.add("error");
+    input.classList.add("input-error");
+  }
+}
+
+function clearFieldValidation(id) {
+  setFieldValidation(id, null, "");
+}
+
+function validatePositiveNumber(id, label) {
+  const input = el(id);
+  if (!input) return { ok: true };
+
+  const value = Number(input.value);
+  if (!isFinite(value)) {
+    const message = `${label} must be a valid number.`;
+    setFieldValidation(id, "error", message);
+    return { ok: false, message };
+  }
+  if (value <= 0) {
+    const message = `${label} must be greater than 0.`;
+    setFieldValidation(id, "error", message);
+    return { ok: false, message };
+  }
+
+  clearFieldValidation(id);
+  return { ok: true };
+}
+
+function validateNumericInputs() {
+  const steel = el("steelType").value;
+  const checks = [];
+
+  checks.push(validatePositiveNumber("aggSize", "Nominal aggregate size"));
+
+  if (steel === "Reinforcement bars") {
+    checks.push(validatePositiveNumber("barPhi", "Bar / Strand diameter φ"));
+  } else if (steel === "Prestressing – Post-tension (ducted)") {
+    const shape = el("ductShape").value;
+    if (shape === "Circular") {
+      checks.push(validatePositiveNumber("dCirc", "Duct diameter"));
+      clearFieldValidation("rectA");
+      clearFieldValidation("rectB");
+    } else {
+      checks.push(validatePositiveNumber("rectA", "Rect duct a"));
+      checks.push(validatePositiveNumber("rectB", "Rect duct b"));
+      clearFieldValidation("dCirc");
+    }
+    clearFieldValidation("barPhi");
+    clearFieldValidation("prePhi");
+  } else {
+    checks.push(validatePositiveNumber("prePhi", "Bar / Wire diameter φ"));
+    clearFieldValidation("barPhi");
+    clearFieldValidation("dCirc");
+    clearFieldValidation("rectA");
+    clearFieldValidation("rectB");
+  }
+
+  if (steel === "Reinforcement bars") {
+    clearFieldValidation("dCirc");
+    clearFieldValidation("rectA");
+    clearFieldValidation("rectB");
+    clearFieldValidation("prePhi");
+  } else if (steel === "Prestressing – Pre-tension (strand/wire)") {
+    clearFieldValidation("barPhi");
+    clearFieldValidation("dCirc");
+    clearFieldValidation("rectA");
+    clearFieldValidation("rectB");
+  }
+
+  const firstError = checks.find(x => !x.ok);
+  return firstError || { ok: true };
+}
 
 /** THEME HANDLING **/
 const THEME_KEY = 'theme-preference'; // 'light' | 'dark' | null (system)
@@ -137,22 +250,48 @@ function mapExposureToColumn(expo) {
 }
 
 function strengthClassRank(sc) { const idx = STRENGTH_CLASSES.indexOf(sc); return idx >= 0 ? idx : -1; }
-function meetsStrengthThreshold(strClass, groupKey) {
+function getAdjustedStrengthThreshold(groupKey, airEntrainmentGt4) {
   const threshold = STRENGTH_THRESHOLD_BY_GROUP[groupKey];
+  if (!threshold) return null;
+
+  // Air entrainment > 4% reduces the REQUIRED threshold by one grade
+  return airEntrainmentGt4
+    ? adjustStrengthClassByGrades(threshold, -1)
+    : threshold;
+}
+
+function meetsStrengthThreshold(strClass, groupKey, airEntrainmentGt4 = false) {
+  const threshold = getAdjustedStrengthThreshold(groupKey, airEntrainmentGt4);
   if (!threshold) return false;
   return strengthClassRank(strClass) >= strengthClassRank(threshold);
 }
 
-function deriveStructuralClass(designLifeYears, strengthClass, expoCorrosion, slabGeom, qcSpecial) {
+function adjustStrengthClassByGrades(strClass, gradeShift) {
+  const idx = strengthClassRank(strClass);
+  if (idx < 0) return strClass;
+  const nextIdx = clamp(idx + gradeShift, 0, STRENGTH_CLASSES.length - 1);
+  return STRENGTH_CLASSES[nextIdx];
+}
+
+function deriveStructuralClass(designLifeYears, strengthClass, expoCorrosion, slabGeom, qcSpecial, airEntrainmentGt4) {
   let s = 4;
+
+  // Design working life adjustment
   if (+designLifeYears >= 100) s += 2;
+  else if (+designLifeYears >= 75) s += 1;
+
   const colKey = mapExposureToColumn(expoCorrosion);
-  // Use the same key directly to look up the threshold
-  if (meetsStrengthThreshold(strengthClass, colKey)) s -= 1;
+  const thresholdFor43N = getAdjustedStrengthThreshold(colKey, airEntrainmentGt4);
+
+  if (thresholdFor43N && strengthClassRank(strengthClass) >= strengthClassRank(thresholdFor43N)) {
+    s -= 1;
+  }
+
   if (slabGeom) s -= 1;
   if (qcSpecial) s -= 1;
+
   s = Math.max(1, Math.min(6, s));
-  return `S${s}`;
+  return { sClass: `S${s}`, thresholdFor43N };
 }
 
 function cmin_b_bars(phi_mm, agg_gt_32) { let c = +phi_mm; if (agg_gt_32) c += 5.0; return c; }
@@ -202,11 +341,57 @@ function groundIncrement(choice) { if (!choice) return 0; if (choice.includes("P
 function getDeltaCdevRange(qcLevel, precisePrecast) { if (precisePrecast === "Yes") return [0, 10]; if (qcLevel === "Special") return [5, 10]; return [10, 10]; }
 function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
 
+function setDeltaCdevMessage(kind, text) {
+  const msg = el("deltaCdevMsg");
+  const inp = el("deltaCdev");
+  if (!msg || !inp) return;
+
+  msg.textContent = text || "";
+  msg.classList.toggle("hidden", !text);
+  msg.classList.remove("warn", "error");
+  inp.classList.remove("input-warn", "input-error");
+
+  if (kind === "warn") {
+    msg.classList.add("warn");
+    inp.classList.add("input-warn");
+  } else if (kind === "error") {
+    msg.classList.add("error");
+    inp.classList.add("input-error");
+  }
+}
+
+function validateDeltaCdev() {
+  const inp = el("deltaCdev");
+  const value = Number(inp.value);
+  const [lo, hi] = getDeltaCdevRange(el("qcLevel").value, el("precisePrecast").value);
+
+  if (!isFinite(value)) {
+    setDeltaCdevMessage("error", "Enter a valid Δcdev value.");
+    return { ok: false, severity: "error", message: "Enter a valid Δcdev value." };
+  }
+
+  if (value < 0) {
+    setDeltaCdevMessage("error", "Δcdev cannot be negative.");
+    return { ok: false, severity: "error", message: "Δcdev cannot be negative." };
+  }
+
+  if (value < lo || value > hi) {
+    const message = `Warning: Δcdev = ${value.toFixed(1)} mm is outside the applicable limit ${lo.toFixed(0)}–${hi.toFixed(0)} mm for the selected QC / precast option.`;
+    setDeltaCdevMessage("warn", message);
+    return { ok: true, severity: "warn", message };
+  }
+
+  setDeltaCdevMessage(null, "");
+  return { ok: true, severity: null, message: "" };
+}
+
 function initUI(){
   populateSelect("strClass", STRENGTH_CLASSES, "C30/37");
   populateSelect("steelType", REINF_TYPES, REINF_TYPES[0]);
   populateSelect("expoCorrosion", EXPOSURE_CORROSION, "XC3");
   populateSelect("expoAttack", EXPOSURE_ATTACK, "X0");
+  populateSelect("designLife", DESIGN_WORKING_LIFE, "50");
+  populateSelect("airEntrainment", YESNO, "No");
   populateSelect("slabGeom", YESNO, "No");
   populateSelect("qcLevel", QC_LEVELS, "Normal");
   populateSelect("uneven", YESNO, "No");
@@ -215,27 +400,58 @@ function initUI(){
   populateSelect("castAgainstConcrete", YESNO, "No");
   populateSelect("precisePrecast", YESNO, "No");
 
-  // Auto-update fck when class changes
   updateFckFromClass();
-  el('strClass').addEventListener('change', updateFckFromClass);
-
   updateDeltaCdevLimits();
-
-  // Ensure correct fieldsets visible at startup
+  validateDeltaCdev();
   toggleSteelFields();
   toggleDuctFields();
+  validateNumericInputs();
 
-  el("steelType").addEventListener("change", toggleSteelFields);
-  el("ductShape").addEventListener("change", toggleDuctFields);
-  el("qcLevel").addEventListener("change", updateDeltaCdevLimits);
-  el("precisePrecast").addEventListener("change", updateDeltaCdevLimits);
+  if (eventsBound) return;
+  eventsBound = true;
+
+  el("strClass").addEventListener("change", updateFckFromClass);
+
+  el("steelType").addEventListener("change", () => {
+    toggleSteelFields();
+    validateNumericInputs();
+  });
+
+  el("ductShape").addEventListener("change", () => {
+    toggleDuctFields();
+    validateNumericInputs();
+  });
+
+  el("qcLevel").addEventListener("change", () => {
+    updateDeltaCdevLimits();
+    validateDeltaCdev();
+  });
+
+  el("precisePrecast").addEventListener("change", () => {
+    updateDeltaCdevLimits();
+    validateDeltaCdev();
+  });
+
+  el("deltaCdev").addEventListener("input", validateDeltaCdev);
+
+  ["aggSize", "barPhi", "dCirc", "rectA", "rectB", "prePhi"].forEach(id => {
+    const node = el(id);
+    node?.addEventListener("input", validateNumericInputs);
+  });
+
   el("calcBtn").addEventListener("click", onCalculate);
+
+  // Safe binding so app does not fail if printBtn is absent in a local variant
+  el("printBtn")?.addEventListener("click", onPrint);
+
+  window.addEventListener("beforeprint", updatePrintFooter);
+
   el("resetBtn").addEventListener("click", () => setTimeout(() => {
     initUI();
-    el("output").textContent = `Fill inputs and click “Calculate cover”.`;
-    el("kpiCnom").textContent = "–";
-    el("kpiCmin").textContent = "–";
-    el("kpiSclass").textContent = "–";
+    setDeltaCdevMessage(null, "");
+    ["aggSize", "barPhi", "dCirc", "rectA", "rectB", "prePhi"].forEach(clearFieldValidation);
+    validateNumericInputs();
+    resetResultsDisplay();
   }, 0));
 }
 
@@ -261,12 +477,37 @@ function updateDeltaCdevLimits(){
   const pp = el("precisePrecast").value;
   const [lo, hi] = getDeltaCdevRange(qc, pp);
   const inp = el("deltaCdev");
-  const current = Number(inp.value || 0);
-  inp.min = lo; inp.max = hi; inp.value = clamp(current, lo, hi);
+
+  // Allow entry outside range so warning can be shown; negative values are handled separately
+  inp.min = 0;
+  inp.max = hi;
+
   el("dcdRange").textContent = `(range ${lo.toFixed(0)} – ${hi.toFixed(0)} mm)`;
 }
 
 function readNumber(id, fallback) { const v = Number(el(id).value); return isFinite(v) ? v : fallback; }
+
+function formatPrintDateTime() {
+  const now = new Date();
+  return now.toLocaleString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function updatePrintFooter() {
+  const footer = el("printFooter");
+  if (!footer) return;
+  footer.textContent = `Generated on ${formatPrintDateTime()}`;
+}
+
+function onPrint() {
+  updatePrintFooter();
+  window.print();
+}
 
 function onCalculate(){
   try{
@@ -276,6 +517,7 @@ function onCalculate(){
     const expo_corr = el("expoCorrosion").value;
     const expo_att = el("expoAttack").value;
     const designLife = readNumber("designLife", 50);
+    const airEntrainmentGt4 = el("airEntrainment").value === "Yes";
     const slabGeom = el("slabGeom").value === "Yes";
     const qcSpecial = el("qcLevel").value === "Special";
     const agg_gt_32 = readNumber("aggSize", 20) > 32;
@@ -283,10 +525,22 @@ function onCalculate(){
     const g_inc = groundIncrement(el("groundCast").value);
     const abr_inc = abrasionIncrement(el("abrasion").value);
     const castAgainstConc = el("castAgainstConcrete").value === "Yes";
+
+    const deltaValidation = validateDeltaCdev();
+    if (!deltaValidation.ok && deltaValidation.severity === "error") {
+      throw new Error(deltaValidation.message);
+    }
+
+    const numericValidation = validateNumericInputs();
+    if (!numericValidation.ok) {
+      throw new Error(numericValidation.message);
+    }
+
     const delta_c_dev = readNumber("deltaCdev", 10);
 
-    const s_class = deriveStructuralClass(designLife, sc, expo_corr, slabGeom, qcSpecial);
-
+    const { sClass: s_class, thresholdFor43N } =
+      deriveStructuralClass(designLife, sc, expo_corr, slabGeom, qcSpecial, airEntrainmentGt4);   
+    
     let cmin_b = 0;
     if (steel === "Reinforcement bars") {
       const phi = readNumber("barPhi", 16);
@@ -326,8 +580,16 @@ function onCalculate(){
     lines.push(`Steel type: ${steel}`);
     lines.push(`Strength class: ${sc} (fck = ${isNaN(fck) ? '-' : fck.toFixed(1)} MPa)`);
     lines.push(`Exposure (corrosion): ${expo_corr}\nExposure (attack info): ${expo_att}`);
-    lines.push(`Design life: ${designLife.toFixed(0)} y  |  Slab geometry: ${slabGeom ? "Yes":"No"}  |  QC: ${qcSpecial ? "Special":"Normal"}`);
-    lines.push(`Derived structural class (Table 4.3N rules): ${s_class}`);
+    lines.push(`Design life: ${designLife.toFixed(0)} y \n Slab geometry: ${slabGeom ? "Yes":"No"} \n QC: ${qcSpecial ? "Special":"Normal"}`);
+    lines.push(`Air entrainment > 4%: ${airEntrainmentGt4 ? "Yes" : "No"}`);
+    if (thresholdFor43N) {
+      lines.push(
+        `Table 4.3N reference strength class for 1-class reduction: ${thresholdFor43N}` +
+        (airEntrainmentGt4 ? ` (required threshold reduced by one grade due to air entrainment > 4%)` : ``)
+      );
+    }
+    lines.push(`Derived structural class (Table 4.3N rules): ${s_class}`);   
+    
     lines.push("");
 
     lines.push("--- Bond cover (Table 4.2) ---");
@@ -347,14 +609,32 @@ function onCalculate(){
     lines.push("");
 
     const incs = [];
-    if (uneven_inc > 0) incs.push(`Uneven surface +${uneven_inc}`);
-    if (g_inc > 0) incs.push(`Cast against ground min ${g_inc}`);
-    if (abr_inc > 0) incs.push(`Abrasion ${el("abrasion").value} +${abr_inc}`);
-    lines.push("Execution increments: " + (incs.length ? incs.join(", ") : "None"));
+    if (uneven_inc > 0) incs.push(`Uneven surface +${uneven_inc} mm`);
+
+    if (g_inc > 0) {
+      incs.push(`Cast against ground: ${el("groundCast").value} → minimum ${g_inc} mm`);
+    }
+
+    if (abr_inc > 0) {
+      incs.push(`Abrasion ${el("abrasion").value} +${abr_inc} mm`);
+    }
+
+    lines.push("Execution increments: " + (incs.length ? incs.join(", ") : "None"));   
     lines.push(`c_min (after execution increments) = ${cmin_final.toFixed(1)} mm`);
     lines.push("");
 
-    lines.push(`Δc_dev used = ${delta_c_dev.toFixed(1)} mm (per QC/Precast setting)`);
+    const qcLabel = el("qcLevel").value;
+    const precastLabel = el("precisePrecast").value;
+    const [dcdLo, dcdHi] = getDeltaCdevRange(qcLabel, precastLabel);
+      
+    lines.push(
+      `Δc_dev used = ${delta_c_dev.toFixed(1)} mm ` +
+      `(Quality control = ${qcLabel}; ` +
+      `Precast high-accuracy & reject nonconforming = ${precastLabel}; ` +
+      `applicable range = ${dcdLo.toFixed(0)}–${dcdHi.toFixed(0)} mm)`
+    );
+    if (deltaValidation.severity === "warn") lines.push(deltaValidation.message);
+
     lines.push(`Nominal cover: c_nom = c_min + Δc_dev = ${cmin_final.toFixed(1)} + ${delta_c_dev.toFixed(1)} = **${cnom.toFixed(1)} mm**`);
     lines.push("");
 
