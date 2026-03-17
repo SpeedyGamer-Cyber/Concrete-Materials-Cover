@@ -341,6 +341,12 @@ function groundIncrement(choice) { if (!choice) return 0; if (choice.includes("P
 function getDeltaCdevRange(qcLevel, precisePrecast) { if (precisePrecast === "Yes") return [0, 10]; if (qcLevel === "Special") return [5, 10]; return [10, 10]; }
 function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
 
+function formatDeltaCdevApplicability(lo, hi) {
+  return lo === hi
+    ? `Δcdev = ${lo.toFixed(0)} mm`
+    : `range ${lo.toFixed(0)} – ${hi.toFixed(0)} mm`;
+}
+
 function setDeltaCdevMessage(kind, text) {
   const msg = el("deltaCdevMsg");
   const inp = el("deltaCdev");
@@ -376,10 +382,14 @@ function validateDeltaCdev() {
   }
 
   if (value < lo || value > hi) {
-    const message = `Warning: Δcdev = ${value.toFixed(1)} mm is outside the applicable limit ${lo.toFixed(0)}–${hi.toFixed(0)} mm for the selected QC / precast option.`;
+    const applicabilityText = lo === hi
+      ? `the applicable value ${lo.toFixed(0)} mm`
+      : `the applicable range ${lo.toFixed(0)}–${hi.toFixed(0)} mm`;
+
+    const message = `Warning: Δcdev = ${value.toFixed(1)} mm is outside ${applicabilityText} for the selected QC / precast option.`;
     setDeltaCdevMessage("warn", message);
     return { ok: true, severity: "warn", message };
-  }
+  }  
 
   setDeltaCdevMessage(null, "");
   return { ok: true, severity: null, message: "" };
@@ -477,12 +487,10 @@ function updateDeltaCdevLimits(){
   const pp = el("precisePrecast").value;
   const [lo, hi] = getDeltaCdevRange(qc, pp);
   const inp = el("deltaCdev");
-
   // Allow entry outside range so warning can be shown; negative values are handled separately
   inp.min = 0;
   inp.max = hi;
-
-  el("dcdRange").textContent = `(range ${lo.toFixed(0)} – ${hi.toFixed(0)} mm)`;
+  el("dcdRange").textContent = `(${formatDeltaCdevApplicability(lo, hi)})`;
 }
 
 function readNumber(id, fallback) { const v = Number(el(id).value); return isFinite(v) ? v : fallback; }
@@ -631,8 +639,9 @@ function onCalculate(){
       `Δc_dev used = ${delta_c_dev.toFixed(1)} mm ` +
       `(Quality control = ${qcLabel}; ` +
       `Precast high-accuracy & reject nonconforming = ${precastLabel}; ` +
-      `applicable range = ${dcdLo.toFixed(0)}–${dcdHi.toFixed(0)} mm)`
-    );
+      `${formatDeltaCdevApplicability(dcdLo, dcdHi)})`
+    );    
+    
     if (deltaValidation.severity === "warn") lines.push(deltaValidation.message);
 
     lines.push(`Nominal cover: c_nom = c_min + Δc_dev = ${cmin_final.toFixed(1)} + ${delta_c_dev.toFixed(1)} = **${cnom.toFixed(1)} mm**`);
